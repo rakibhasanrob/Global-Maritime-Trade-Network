@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Interactive animated globe visualizing the growth of global maritime trade routes from 1950 to 2025">
+  <title>Global Maritime Trade Network (1950–2025)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:       #000510;
+      --accent:   #00d4ff;
+      --accent2:  #0052cc;
+      --text:     rgba(255,255,255,0.85);
+      --dim:      rgba(255,255,255,0.35);
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* ── Canvas ── */
+    #globe-canvas {
+      display: block;
+      width: 100%; height: 100%;
+      position: fixed; inset: 0;
+    }
+
+    /* ── Vignette ── */
+    #vignette {
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at center, transparent 38%, rgba(0,5,16,.75) 100%);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* ── Header ── */
+    .header {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 28px 40px;
+      display: flex; align-items: flex-start; justify-content: space-between;
+      z-index: 10; pointer-events: none;
+    }
+
+    .title-block {}
+    .title {
+      font-size: clamp(16px, 2.2vw, 26px);
+      font-weight: 700; letter-spacing: .5px; line-height: 1.25;
+      background: linear-gradient(100deg, #fff 0%, var(--accent) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .subtitle {
+      margin-top: 5px;
+      font-size: 11px; letter-spacing: 4px; color: var(--dim);
+    }
+
+    .stats-block { text-align: right; }
+    .stat-item   { margin-bottom: 14px; }
+    .stat-label  { font-size: 9px; letter-spacing: 2.5px; color: var(--dim); text-transform: uppercase; }
+    .stat-value  {
+      font-size: 30px; font-weight: 900; letter-spacing: -1px;
+      color: var(--accent); line-height: 1;
+      text-shadow: 0 0 20px rgba(0,212,255,.5);
+    }
+
+    /* ── Big ghost year ── */
+    #year-ghost {
+      position: fixed;
+      bottom: 130px; left: 50%; transform: translateX(-50%);
+      font-size: clamp(64px, 10vw, 120px);
+      font-weight: 900; letter-spacing: 6px; white-space: nowrap;
+      color: rgba(255,255,255,.04);
+      pointer-events: none; z-index: 3;
+    }
+
+    /* ── Timeline panel ── */
+    .timeline-panel {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 20px 56px 30px;
+      background: linear-gradient(to top, rgba(0,5,16,.92) 0%, transparent 100%);
+      z-index: 10;
+    }
+
+    .tl-top {
+      display: flex; align-items: center; gap: 16px; margin-bottom: 14px;
+    }
+
+    /* Play button */
+    #btn-play {
+      width: 40px; height: 40px; border-radius: 50%;
+      border: 1.5px solid rgba(0,212,255,.45);
+      background: rgba(0,212,255,.08);
+      color: var(--accent); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; flex-shrink: 0;
+      transition: background .2s, box-shadow .2s, transform .15s;
+    }
+    #btn-play:hover {
+      background: rgba(0,212,255,.18);
+      box-shadow: 0 0 22px rgba(0,212,255,.45);
+      transform: scale(1.05);
+    }
+    #btn-play:active { transform: scale(.97); }
+
+    .yr-label {
+      font-size: 14px; font-weight: 700; color: var(--accent);
+      letter-spacing: 2px; min-width: 50px; flex-shrink: 0;
+    }
+
+    /* Track */
+    .track-wrap {
+      flex: 1; position: relative; height: 3px; cursor: pointer;
+      padding: 10px 0; margin: -10px 0;   /* expand hit area */
+    }
+    .track-bg {
+      position: absolute; top: 10px; left: 0; right: 0; height: 3px;
+      background: rgba(255,255,255,.1); border-radius: 2px;
+    }
+    .track-fill {
+      position: absolute; top: 10px; left: 0; height: 3px;
+      background: linear-gradient(90deg, var(--accent2), var(--accent));
+      border-radius: 2px; width: 0%;
+      transition: width .08s linear;
+    }
+    .track-handle {
+      position: absolute; top: 50%; left: 0%;
+      transform: translate(-50%, -50%);
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 14px var(--accent), 0 0 4px var(--accent);
+      cursor: grab; transition: left .08s linear;
+    }
+    .track-handle:active { cursor: grabbing; }
+
+    /* Year ticks */
+    .yr-ticks {
+      display: flex; justify-content: space-between;
+    }
+    .yr-tick {
+      font-size: 10px; color: var(--dim); letter-spacing: .5px;
+      cursor: pointer; transition: color .25s;
+    }
+    .yr-tick:hover { color: rgba(255,255,255,.65); }
+    .yr-tick.past  { color: rgba(0,212,255,.55); }
+    .yr-tick.active{ color: var(--accent); font-weight: 600; }
+
+    /* ── Port popup ── */
+    .port-popup {
+      position: fixed; z-index: 20; pointer-events: none;
+      background: rgba(0,8,22,.9);
+      border: 1px solid rgba(0,212,255,.2);
+      border-radius: 10px;
+      padding: 16px 20px; min-width: 190px;
+      backdrop-filter: blur(14px);
+      box-shadow: 0 8px 40px rgba(0,0,0,.5), 0 0 40px rgba(0,212,255,.08),
+                  inset 0 1px 0 rgba(255,255,255,.05);
+      opacity: 0; transform: translateY(8px) scale(.97);
+      transition: opacity .3s, transform .3s;
+    }
+    .port-popup.show { opacity: 1; transform: translateY(0) scale(1); }
+
+    .pp-name {
+      font-size: 17px; font-weight: 700; color: #fff; margin-bottom: 2px;
+    }
+    .pp-region {
+      font-size: 9px; letter-spacing: 3px; color: var(--accent);
+      text-transform: uppercase;
+      margin-bottom: 12px; padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,.07);
+    }
+    .pp-row {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 7px;
+    }
+    .pp-row-l { font-size: 9px; letter-spacing: 1.5px; color: var(--dim); text-transform: uppercase; }
+    .pp-row-v { font-size: 12px; font-weight: 600; color: #fff; }
+    .pp-bar-wrap {
+      height: 2px; background: rgba(255,255,255,.08);
+      border-radius: 2px; margin-top: 10px; overflow: hidden;
+    }
+    .pp-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent2), var(--accent));
+      border-radius: 2px; width: 0%; transition: width .5s;
+    }
+
+    /* ── Hint ── */
+    .hint {
+      position: fixed; bottom: 28px; right: 40px;
+      font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,.2);
+      pointer-events: none; z-index: 10; text-transform: uppercase;
+    }
+
+    /* ── Loading ── */
+    #loading {
+      position: fixed; inset: 0;
+      background: var(--bg);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 100;
+      transition: opacity .8s ease;
+    }
+    #loading.out { opacity: 0; pointer-events: none; }
+
+    .ld-ring {
+      width: 54px; height: 54px;
+      border: 2px solid rgba(0,212,255,.12);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    .ld-text {
+      margin-top: 18px; font-size: 11px;
+      letter-spacing: 4px; color: var(--dim);
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Legend ── */
+    .legend {
+      position: fixed; bottom: 90px; left: 40px;
+      z-index: 10; pointer-events: none;
+    }
+    .leg-title {
+      font-size: 9px; letter-spacing: 2px; color: var(--dim);
+      text-transform: uppercase; margin-bottom: 8px;
+    }
+    .leg-item {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 6px;
+    }
+    .leg-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+    .leg-label { font-size: 10px; color: rgba(255,255,255,.45); }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="ld-ring"></div>
+  <div class="ld-text">LOADING GLOBE</div>
+</div>
+
+<canvas id="globe-canvas"></canvas>
+<div id="vignette"></div>
+
+<!-- Header -->
+<header class="header">
+  <div class="title-block">
+    <h1 class="title">Global Maritime Trade Network</h1>
+    <div class="subtitle">MARITIME ROUTES &nbsp;·&nbsp; 1950 — 2025</div>
+  </div>
+  <div class="stats-block">
+    <div class="stat-item">
+      <div class="stat-label">Active Routes</div>
+      <div class="stat-value" id="stat-routes">0</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-label">Major Ports</div>
+      <div class="stat-value" id="stat-ports">10</div>
+    </div>
+  </div>
+</header>
+
+<!-- Ghost year -->
+<div id="year-ghost">1950</div>
+
+<!-- Timeline -->
+<div class="timeline-panel">
+  <div class="tl-top">
+    <button id="btn-play" title="Play / Pause">▶</button>
+    <div class="yr-label" id="yr-label">1950</div>
+    <div class="track-wrap" id="track-wrap">
+      <div class="track-bg"></div>
+      <div class="track-fill"   id="track-fill"></div>
+      <div class="track-handle" id="track-handle"></div>
+    </div>
+  </div>
+  <div class="yr-ticks" id="yr-ticks"></div>
+</div>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="leg-title">Era</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#ff9944"></div><div class="leg-label">1950–1960 Foundational</div></div>
+  <div class="leg-item"><div class="leg-dot" style="background:#44aaff"></div><div class="leg-label">1970–1980 Container Era</div></div>
+  <div class="leg-item"><div class="leg-dot" style="background:#00d4ff"></div><div class="leg-label">1990–2000 Globalization</div></div>
+  <div class="leg-item"><div class="leg-dot" style="background:#aa66ff"></div><div class="leg-label">2010–2025 Modern Network</div></div>
+</div>
+
+<!-- Port popup -->
+<div class="port-popup" id="port-popup">
+  <div class="pp-name"   id="pp-name">—</div>
+  <div class="pp-region" id="pp-region">—</div>
+  <div class="pp-row">
+    <span class="pp-row-l">Trade Activity</span>
+    <span class="pp-row-v" id="pp-activity">—</span>
+  </div>
+  <div class="pp-row">
+    <span class="pp-row-l">Active Routes</span>
+    <span class="pp-row-v" id="pp-routes">—</span>
+  </div>
+  <div class="pp-bar-wrap"><div class="pp-bar" id="pp-bar"></div></div>
+</div>
+
+<!-- Hint -->
+<div class="hint">Drag · Scroll · Click port</div>
+
+<!-- ─────────────── Three.js via ESM importmap ─────────────── -->
+<script type="importmap">
+{
+  "imports": {
+    "three":          "https://unpkg.com/three@0.152.0/build/three.module.js",
+    "three/addons/":  "https://unpkg.com/three@0.152.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ═══════════════════════════════════════════════════
+//  DATA
+// ═══════════════════════════════════════════════════
+
+const YEAR_START = 1950, YEAR_END = 2025;
+const YEARS = [1950, 1960, 1970, 1980, 1990, 2000, 2010, 2025];
+const PLAY_SECS = 48; // seconds for full playthrough
+
+const PORTS = [
+  { id:'shanghai',   name:'Shanghai',     lat: 31.23,  lon: 121.47,  region:'East Asia',       base:3, max:10 },
+  { id:'singapore',  name:'Singapore',    lat:  1.35,  lon: 103.82,  region:'Southeast Asia',  base:4, max: 9 },
+  { id:'rotterdam',  name:'Rotterdam',    lat: 51.92,  lon:   4.48,  region:'Northern Europe', base:7, max: 9 },
+  { id:'dubai',      name:'Dubai',        lat: 25.20,  lon:  55.27,  region:'Middle East',     base:2, max: 8 },
+  { id:'newyork',    name:'New York',     lat: 40.71,  lon: -74.01,  region:'North America',   base:8, max: 8 },
+  { id:'losangeles', name:'Los Angeles',  lat: 33.74,  lon:-118.25,  region:'North America',   base:5, max: 9 },
+  { id:'tokyo',      name:'Tokyo',        lat: 35.68,  lon: 139.69,  region:'East Asia',       base:6, max: 8 },
+  { id:'hamburg',    name:'Hamburg',      lat: 53.55,  lon:   9.99,  region:'Northern Europe', base:6, max: 8 },
+  { id:'mumbai',     name:'Mumbai',       lat: 19.08,  lon:  72.88,  region:'South Asia',      base:3, max: 7 },
+  { id:'hongkong',   name:'Hong Kong',    lat: 22.32,  lon: 114.17,  region:'East Asia',       base:5, max: 9 },
+];
+
+// era → color  [foundational | container | globalization | modern]
+function eraColor(year) {
+  if (year <= 1960) return new THREE.Color(0xff9944);
+  if (year <= 1980) return new THREE.Color(0x44aaff);
+  if (year <= 2000) return new THREE.Color(0x00d4ff);
+  return new THREE.Color(0xaa66ff);
+}
+
+const ROUTES = [
+  // 1950 – Post-WWII foundations
+  { from:'rotterdam',  to:'newyork',    yearStart:1950, strength:7 },
+  { from:'hamburg',    to:'newyork',    yearStart:1950, strength:6 },
+  { from:'losangeles', to:'tokyo',      yearStart:1950, strength:5 },
+  { from:'rotterdam',  to:'mumbai',     yearStart:1950, strength:4 },
+  { from:'rotterdam',  to:'singapore',  yearStart:1950, strength:3 },
+
+  // 1960 – Asian trade growth
+  { from:'tokyo',      to:'losangeles', yearStart:1960, strength:6 },
+  { from:'singapore',  to:'rotterdam',  yearStart:1960, strength:5 },
+  { from:'hamburg',    to:'singapore',  yearStart:1960, strength:4 },
+  { from:'newyork',    to:'rotterdam',  yearStart:1960, strength:7 },
+
+  // 1970 – Container shipping revolution
+  { from:'shanghai',   to:'losangeles', yearStart:1970, strength:6 },
+  { from:'hongkong',   to:'rotterdam',  yearStart:1970, strength:7 },
+  { from:'tokyo',      to:'rotterdam',  yearStart:1970, strength:6 },
+  { from:'singapore',  to:'hamburg',    yearStart:1970, strength:5 },
+  { from:'dubai',      to:'rotterdam',  yearStart:1970, strength:4 },
+  { from:'mumbai',     to:'rotterdam',  yearStart:1970, strength:4 },
+
+  // 1980 – Globalization acceleration
+  { from:'hongkong',   to:'losangeles', yearStart:1980, strength:8 },
+  { from:'shanghai',   to:'rotterdam',  yearStart:1980, strength:7 },
+  { from:'singapore',  to:'newyork',    yearStart:1980, strength:5 },
+  { from:'dubai',      to:'mumbai',     yearStart:1980, strength:5 },
+  { from:'tokyo',      to:'newyork',    yearStart:1980, strength:6 },
+
+  // 1990 – Post-Cold War boom
+  { from:'shanghai',   to:'hamburg',    yearStart:1990, strength:7 },
+  { from:'hongkong',   to:'singapore',  yearStart:1990, strength:8 },
+  { from:'singapore',  to:'dubai',      yearStart:1990, strength:6 },
+  { from:'mumbai',     to:'singapore',  yearStart:1990, strength:5 },
+  { from:'losangeles', to:'singapore',  yearStart:1990, strength:6 },
+
+  // 2000 – China trade explosion
+  { from:'shanghai',   to:'singapore',  yearStart:2000, strength:10 },
+  { from:'shanghai',   to:'dubai',      yearStart:2000, strength:7  },
+  { from:'hongkong',   to:'newyork',    yearStart:2000, strength:7  },
+  { from:'rotterdam',  to:'dubai',      yearStart:2000, strength:6  },
+  { from:'singapore',  to:'losangeles', yearStart:2000, strength:7  },
+
+  // 2010 – Peak container shipping
+  { from:'shanghai',   to:'tokyo',      yearStart:2010, strength:9 },
+  { from:'hongkong',   to:'dubai',      yearStart:2010, strength:7 },
+  { from:'hamburg',    to:'dubai',      yearStart:2010, strength:6 },
+  { from:'mumbai',     to:'dubai',      yearStart:2010, strength:8 },
+  { from:'newyork',    to:'hamburg',    yearStart:2010, strength:7 },
+
+  // 2025 – Modern global network
+  { from:'shanghai',   to:'hongkong',   yearStart:2025, strength:10 },
+  { from:'singapore',  to:'tokyo',      yearStart:2025, strength:8  },
+  { from:'dubai',      to:'newyork',    yearStart:2025, strength:7  },
+  { from:'losangeles', to:'rotterdam',  yearStart:2025, strength:6  },
+  { from:'mumbai',     to:'hongkong',   yearStart:2025, strength:7  },
+];
+
+// ═══════════════════════════════════════════════════
+//  RENDERER
+// ═══════════════════════════════════════════════════
+
+const canvas = document.getElementById('globe-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color(0x000510);
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.01, 500);
+camera.position.set(0, 0, 2.55);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping    = true;
+controls.dampingFactor    = 0.07;
+controls.rotateSpeed      = 0.45;
+controls.zoomSpeed        = 0.7;
+controls.minDistance      = 1.35;
+controls.maxDistance      = 5.5;
+controls.enablePan        = false;
+controls.autoRotate       = true;
+controls.autoRotateSpeed  = 0.25;
+
+// ═══════════════════════════════════════════════════
+//  LIGHTS
+// ═══════════════════════════════════════════════════
+
+scene.add(new THREE.AmbientLight(0x0d1a33, 2.5));
+
+const sun = new THREE.DirectionalLight(0xffffff, 2.8);
+sun.position.set(5, 3, 5);
+scene.add(sun);
+
+const rim = new THREE.DirectionalLight(0x0033cc, 0.6);
+rim.position.set(-5, 0, -3);
+scene.add(rim);
+
+// ═══════════════════════════════════════════════════
+//  STARS
+// ═══════════════════════════════════════════════════
+
+(function addStars() {
+  const N = 3500;
+  const pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    const r  = 80 + Math.random() * 30;
+    pos[i*3]   = r * Math.sin(ph) * Math.cos(th);
+    pos[i*3+1] = r * Math.cos(ph);
+    pos[i*3+2] = r * Math.sin(ph) * Math.sin(th);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.12, transparent: true, opacity: 0.65,
+    sizeAttenuation: false,
+  })));
+})();
+
+// ═══════════════════════════════════════════════════
+//  UTILITIES
+// ═══════════════════════════════════════════════════
+
+const R = 1.0; // globe radius
+
+function ll2v3(lat, lon, r = R) {
+  const phi   = (90 - lat) * Math.PI / 180;
+  const theta = (lon + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -r * Math.sin(phi) * Math.cos(theta),
+     r * Math.cos(phi),
+     r * Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+function makeGlowTex(hex, inner = 0) {
+  const sz = 64, c = document.createElement('canvas');
+  c.width = c.height = sz;
+  const ctx = c.getContext('2d');
+  const cx = sz/2, cy = sz/2, cr = sz/2;
+  const [rr,gg,bb] = [hex>>16&0xff, hex>>8&0xff, hex&0xff];
+  const g = ctx.createRadialGradient(cx,cy,inner*cr, cx,cy,cr);
+  g.addColorStop(0,   `rgba(${rr},${gg},${bb},1)`);
+  g.addColorStop(0.25,`rgba(${rr},${gg},${bb},0.7)`);
+  g.addColorStop(1,   `rgba(${rr},${gg},${bb},0)`);
+  ctx.fillStyle = g; ctx.fillRect(0,0,sz,sz);
+  return new THREE.CanvasTexture(c);
+}
+
+function makeSprite(hex, scale, inner = 0) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeGlowTex(hex, inner),
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  }));
+  sp.scale.setScalar(scale);
+  return sp;
+}
+
+// ═══════════════════════════════════════════════════
+//  GLOBE MESH
+// ═══════════════════════════════════════════════════
+
+const globeGroup = new THREE.Group();
+scene.add(globeGroup);
+
+const loader = new THREE.TextureLoader();
+
+function buildGlobe(earthTex, bumpTex) {
+  const geo = new THREE.SphereGeometry(R, 72, 72);
+  const mat = new THREE.MeshPhongMaterial({
+    map:      earthTex || null,
+    bumpMap:  bumpTex  || null,
+    bumpScale: 0.025,
+    specular:  new THREE.Color(0x1a3d6e),
+    shininess: 18,
+    color:     earthTex ? 0xffffff : 0x0d2a45,
+  });
+  globeGroup.add(new THREE.Mesh(geo, mat));
+
+  // Atmosphere – proper Fresnel
+  const atmo = new THREE.Mesh(
+    new THREE.SphereGeometry(R * 1.018, 64, 64),
+    new THREE.ShaderMaterial({
+      vertexShader: `
+        varying vec3 vNorm; varying vec3 vViewPos;
+        void main(){
+          vNorm = normalize(normalMatrix * normal);
+          vec4 mvp = modelViewMatrix * vec4(position,1.);
+          vViewPos = mvp.xyz;
+          gl_Position = projectionMatrix * mvp;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vNorm; varying vec3 vViewPos;
+        void main(){
+          vec3 vd = normalize(-vViewPos);
+          float fr = 1. - max(0., dot(vNorm, vd));
+          float i  = pow(fr, 2.2) * 0.9;
+          gl_FragColor = vec4(.08, .38, .95, i);
+        }
+      `,
+      transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.FrontSide,
+    })
+  );
+  globeGroup.add(atmo);
+
+  // Outer halo (BackSide for corona)
+  const halo = new THREE.Mesh(
+    new THREE.SphereGeometry(R * 1.22, 32, 32),
+    new THREE.ShaderMaterial({
+      vertexShader: `
+        varying vec3 vNorm; varying vec3 vViewPos;
+        void main(){
+          vNorm = normalize(normalMatrix * normal);
+          vec4 mvp = modelViewMatrix * vec4(position,1.);
+          vViewPos = mvp.xyz;
+          gl_Position = projectionMatrix * mvp;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vNorm; varying vec3 vViewPos;
+        void main(){
+          vec3 vd = normalize(-vViewPos);
+          float fr = 1. - max(0., dot(vNorm, vd));
+          float i  = pow(fr, 3.5) * 0.4;
+          gl_FragColor = vec4(.04, .18, .75, i);
+        }
+      `,
+      transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.BackSide,
+    })
+  );
+  globeGroup.add(halo);
+
+  // Graticule
+  addGraticule();
+  // Port markers
+  addPortMarkers();
+  // Arc routes
+  addArcRoutes();
+
+  // Done – hide loader
+  setTimeout(() => {
+    document.getElementById('loading').classList.add('out');
+    setTimeout(() => document.getElementById('loading').remove(), 900);
+  }, 400);
+  startPlay();
+}
+
+// Try loading textures; fall back gracefully
+loader.load(
+  'https://unpkg.com/three-globe@2.30.0/example/img/earth-dark.jpg',
+  tex => loader.load(
+    'https://unpkg.com/three-globe@2.30.0/example/img/earth-topology.png',
+    bump => buildGlobe(tex, bump),
+    undefined,
+    ()   => buildGlobe(tex, null)
+  ),
+  undefined,
+  ()   => buildGlobe(null, null)
+);
+
+// ═══════════════════════════════════════════════════
+//  GRATICULE
+// ═══════════════════════════════════════════════════
+
+function addGraticule() {
+  const mat = new THREE.LineBasicMaterial({
+    color: 0x0d3a5c, transparent: true, opacity: 0.3,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const g = new THREE.Group();
+
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const pts = [];
+    for (let lon = 0; lon <= 361; lon += 3) pts.push(ll2v3(lat, lon-180, R+.001));
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+  }
+  for (let lon = 0; lon < 360; lon += 45) {
+    const pts = [];
+    for (let lat = -89; lat <= 89; lat += 3) pts.push(ll2v3(lat, lon-180, R+.001));
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+  }
+  globeGroup.add(g);
+}
+
+// ═══════════════════════════════════════════════════
+//  PORT MARKERS
+// ═══════════════════════════════════════════════════
+
+const portById = Object.fromEntries(PORTS.map(p => [p.id, p]));
+const portObjs = {};
+const portCores = []; // for raycasting
+
+function addPortMarkers() {
+  PORTS.forEach(port => {
+    const pos = ll2v3(port.lat, port.lon, R);
+    const grp = new THREE.Group();
+    grp.position.copy(pos);
+    grp.userData.portId = port.id;
+
+    // Solid core
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(0.013, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    grp.add(core);
+    portCores.push(core);
+    core.userData.portGroup = grp;
+
+    // Inner glow
+    const glow = makeSprite(0x00d4ff, 0.07);
+    grp.add(glow);
+
+    // Pulse sprite (animated)
+    const pulse = makeSprite(0x0077ff, 0.07);
+    pulse.material.opacity = 0;
+    grp.add(pulse);
+
+    globeGroup.add(grp);
+    portObjs[port.id] = { grp, core, glow, pulse, phase: Math.random()*Math.PI*2 };
+  });
+}
+
+// ═══════════════════════════════════════════════════
+//  ARC ROUTES
+// ═══════════════════════════════════════════════════
+
+const arcs = [];
+
+function buildCurve(fp, tp) {
+  const s = ll2v3(fp.lat, fp.lon, R);
+  const e = ll2v3(tp.lat, tp.lon, R);
+  const d = s.distanceTo(e);
+  const lift = 0.18 + d * 0.42;
+  const mid = s.clone().add(e).multiplyScalar(0.5);
+  mid.normalize().multiplyScalar(R + lift);
+  return new THREE.QuadraticBezierCurve3(s, mid, e);
+}
+
+function addArcRoutes() {
+  ROUTES.forEach(route => {
+    const fp = portById[route.from], tp = portById[route.to];
+    if (!fp || !tp) return;
+
+    const curve  = buildCurve(fp, tp);
+    const pts    = curve.getPoints(90);
+    const col    = eraColor(route.yearStart);
+
+    // Track line (thin, low opacity)
+    const trackMat = new THREE.LineBasicMaterial({
+      color: col, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const trackLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts), trackMat
+    );
+    globeGroup.add(trackLine);
+
+    // Bright accent line (slightly brighter, same path)
+    const accentMat = new THREE.LineBasicMaterial({
+      color: col.clone().multiplyScalar(1.6),
+      transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const accentLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts), accentMat
+    );
+    globeGroup.add(accentLine);
+
+    // Flow particles
+    const pCount   = Math.max(1, Math.floor(route.strength / 3));
+    const particles = [];
+    const hexColor = col.getHex();
+    for (let i = 0; i < pCount; i++) {
+      const sp = makeSprite(hexColor, 0.032 + (route.strength/10)*0.02);
+      sp.material.opacity = 0;
+      globeGroup.add(sp);
+      particles.push({
+        sp,
+        t:     i / pCount,
+        speed: 0.1 + (route.strength/10) * 0.14,
+      });
+    }
+
+    arcs.push({
+      route, curve, trackMat, accentMat, particles,
+      curOp: 0, tgtOp: 0,
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════
+//  TIMELINE STATE
+// ═══════════════════════════════════════════════════
+
+let curYear   = YEAR_START;
+let playing   = false;
+let playT0    = 0;
+let playYrStart = YEAR_START;
+
+function yr2prog(y) { return (y - YEAR_START) / (YEAR_END - YEAR_START); }
+function prog2yr(p) { return YEAR_START + p * (YEAR_END - YEAR_START); }
+
+function setYear(y, _skipArc) {
+  y = Math.max(YEAR_START, Math.min(YEAR_END, y));
+  curYear = y;
+  refreshUI();
+  refreshArcs();
+}
+
+function refreshUI() {
+  const yr   = Math.round(curYear);
+  const pct  = yr2prog(curYear) * 100;
+  document.getElementById('yr-label').textContent     = yr;
+  document.getElementById('year-ghost').textContent   = yr;
+  document.getElementById('track-fill').style.width   = pct + '%';
+  document.getElementById('track-handle').style.left  = pct + '%';
+
+  // Active routes count
+  const active = ROUTES.filter(r => r.yearStart <= curYear).length;
+  document.getElementById('stat-routes').textContent = active;
+
+  // Ticks
+  document.querySelectorAll('.yr-tick').forEach(el => {
+    const ty = +el.dataset.y;
+    el.className = 'yr-tick' + (ty < yr ? ' past' : ty === yr ? ' active' : '');
+  });
+}
+
+function refreshArcs() {
+  arcs.forEach(a => {
+    if (a.route.yearStart <= curYear) {
+      const fade = Math.min(1, (curYear - a.route.yearStart) / 6);
+      const base = 0.12 + fade * 0.42;
+      a.tgtOp = base * (0.5 + a.route.strength / 20);
+    } else {
+      a.tgtOp = 0;
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════
+//  PLAY / PAUSE
+// ═══════════════════════════════════════════════════
+
+function startPlay() {
+  if (curYear >= YEAR_END - 0.5) { curYear = YEAR_START; setYear(curYear); }
+  playing     = true;
+  playT0      = performance.now();
+  playYrStart = curYear;
+  document.getElementById('btn-play').textContent = '⏸';
+}
+function pausePlay() {
+  playing = false;
+  document.getElementById('btn-play').textContent = '▶';
+}
+
+document.getElementById('btn-play').addEventListener('click', () => {
+  playing ? pausePlay() : startPlay();
+});
+
+// Year ticks
+const ticksEl = document.getElementById('yr-ticks');
+YEARS.forEach(y => {
+  const el = document.createElement('span');
+  el.className = 'yr-tick'; el.textContent = y; el.dataset.y = y;
+  el.addEventListener('click', () => { pausePlay(); setYear(y); });
+  ticksEl.appendChild(el);
+});
+
+// Scrubber drag
+let dragging = false;
+const trackWrap = document.getElementById('track-wrap');
+
+function yearFromEvent(e) {
+  const r = trackWrap.getBoundingClientRect();
+  return prog2yr(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
+}
+trackWrap.addEventListener('mousedown', e => {
+  dragging = true; pausePlay(); setYear(yearFromEvent(e));
+});
+window.addEventListener('mousemove', e => { if (dragging) setYear(yearFromEvent(e)); });
+window.addEventListener('mouseup',   ()=> { dragging = false; });
+
+// Stop auto-rotate on user drag
+canvas.addEventListener('pointerdown', () => { controls.autoRotate = false; });
+
+// ═══════════════════════════════════════════════════
+//  PORT POPUP / RAYCASTING
+// ═══════════════════════════════════════════════════
+
+const ray    = new THREE.Raycaster();
+const mouse  = new THREE.Vector2();
+const popup  = document.getElementById('port-popup');
+
+function showPopup(portId, cx, cy) {
+  const p   = portById[portId]; if (!p) return;
+  const prog = yr2prog(curYear);
+  const act  = Math.round(p.base + prog * (p.max - p.base));
+  const conn = ROUTES.filter(r =>
+    (r.from===portId || r.to===portId) && r.yearStart <= curYear
+  ).length;
+
+  document.getElementById('pp-name').textContent    = p.name;
+  document.getElementById('pp-region').textContent  = p.region;
+  document.getElementById('pp-activity').textContent = `${act} / 10`;
+  document.getElementById('pp-routes').textContent  = conn;
+  document.getElementById('pp-bar').style.width     = (act*10) + '%';
+
+  const pw = 200, ph = 165;
+  let x = cx + 18, y = cy - ph/2;
+  if (x + pw > innerWidth  - 10) x = cx - pw - 18;
+  if (y < 8) y = 8;
+  if (y + ph > innerHeight - 8) y = innerHeight - ph - 8;
+  popup.style.left = x + 'px';
+  popup.style.top  = y + 'px';
+  popup.classList.add('show');
+}
+function hidePopup() { popup.classList.remove('show'); }
+
+canvas.addEventListener('click', e => {
+  mouse.x =  (e.clientX / innerWidth)  * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+  ray.setFromCamera(mouse, camera);
+  const hits = ray.intersectObjects(portCores, false);
+  if (hits.length) {
+    const grp = hits[0].object.userData.portGroup;
+    if (grp) showPopup(grp.userData.portId, e.clientX, e.clientY);
+  } else {
+    hidePopup();
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  mouse.x =  (e.clientX / innerWidth)  * 2 - 1;
+  mouse.y = -(e.clientY / innerHeight) * 2 + 1;
+  ray.setFromCamera(mouse, camera);
+  const hits = ray.intersectObjects(portCores, false);
+  canvas.style.cursor = hits.length ? 'pointer' : 'default';
+});
+
+// ═══════════════════════════════════════════════════
+//  ANIMATION LOOP
+// ═══════════════════════════════════════════════════
+
+let prevT = 0;
+function tick(t) {
+  requestAnimationFrame(tick);
+
+  const dt = Math.min((t - prevT) / 1000, 0.05);
+  prevT = t;
+
+  // Advance playback
+  if (playing) {
+    const elapsed = (t - playT0) / 1000;
+    const speed   = (YEAR_END - YEAR_START) / PLAY_SECS;
+    const ny      = playYrStart + elapsed * speed;
+    if (ny >= YEAR_END) { setYear(YEAR_END); pausePlay(); }
+    else setYear(ny);
+  }
+
+  // Arc smooth fade + particle movement
+  arcs.forEach(a => {
+    a.curOp += (a.tgtOp - a.curOp) * 0.04;
+    a.trackMat.opacity  = a.curOp * 0.55;
+    a.accentMat.opacity = a.curOp * 0.85;
+
+    const vis = a.curOp > 0.01;
+    a.particles.forEach(p => {
+      p.t = (p.t + p.speed * dt) % 1;
+      const pos = a.curve.getPoint(p.t);
+      p.sp.position.copy(pos);
+      p.sp.material.opacity = a.curOp * 1.6;
+      p.sp.visible = vis;
+    });
+  });
+
+  // Port pulse animation
+  const sec = t / 1000;
+  Object.values(portObjs).forEach(po => {
+    const pv = (Math.sin(sec * 1.4 + po.phase) + 1) / 2; // 0→1
+    po.pulse.scale.setScalar(0.07 * (1 + pv * 2.8));
+    po.pulse.material.opacity = (1 - pv) * 0.55;
+    po.glow.material.opacity  = 0.45 + pv * 0.25;
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ═══════════════════════════════════════════════════
+//  RESIZE
+// ═══════════════════════════════════════════════════
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ═══════════════════════════════════════════════════
+//  KICK-OFF (before textures load we start the loop)
+// ═══════════════════════════════════════════════════
+
+setYear(YEAR_START);
+requestAnimationFrame(tick);
+
+</script>
+</body>
+</html>
